@@ -607,7 +607,7 @@ const App = () => {
       
       if (loadedSrcRef.current !== url) {
         loadedSrcRef.current = url;
-        setCurrentBitrate(isWav ? extractBitrate(song.bitrate) : '320kbps');
+        setCurrentBitrate(isWav ? extractBitrate(song.bitrate) : 'N/A');
       }
       
       await audioService.play(url);
