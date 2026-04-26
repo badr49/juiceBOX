@@ -53,10 +53,6 @@ neu build --release
 
 Output will be in `juicebox-app/dist/`.
 
-## API Source
-
-Data provided by [juicewrldapi.com](https://juicewrldapi.com/)
-
 ## License
 
 MIT
