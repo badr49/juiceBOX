@@ -63,6 +63,62 @@ const getWavUrl = (path, fileNames, trackTitles) => {
   return null;
 };
 
+// Discover WAV files dynamically from the server for a session folder
+const discoverWavFiles = async (folderIndex) => {
+  const sessionFolder = SESSION_FOLDERS[folderIndex];
+  if (!sessionFolder) return [];
+  
+  try {
+    const browseUrl = `${API_BASE}/files/browse/?path=${encodeURIComponent(`Original Files/${sessionFolder}`)}&search=.wav`;
+    const response = await fetch(browseUrl);
+    if (!response.ok) return [];
+    
+    const data = await response.json();
+    // Extract just the filenames from the file list
+    const files = (data.files || []).map(f => f.name || f).filter(name => name.endsWith('.wav'));
+    return files;
+  } catch (err) {
+    console.error('[WAV Discovery] Failed:', err);
+    return [];
+  }
+};
+
+// Get WAV URL using discovery endpoint first, then fallback to parsing
+const getWavUrlAsync = async (path, fileNames, trackTitles) => {
+  if (!path.includes('Compilation/') || !path.endsWith('.mp3')) return null;
+  const folderMatch = path.match(/(\d+)\.\s*[^/]+\/[^/]+\.mp3$/);
+  if (!folderMatch) return null;
+  const folderIndex = parseInt(folderMatch[1]) - 1;
+  const sessionFolder = SESSION_FOLDERS[folderIndex];
+  if (!sessionFolder) return null;
+  
+  // Try discovery endpoint first for freshest data
+  const discoveredWavs = await discoverWavFiles(folderIndex);
+  if (discoveredWavs.length > 0) {
+    // Use first discovered WAV
+    const wavFilename = discoveredWavs[0].replace('.wav', '');
+    const wavPath = `Original Files/${sessionFolder}/${wavFilename}.wav`;
+    return `${API_BASE}/files/download/?path=${encodeURIComponent(wavPath)}`;
+  }
+  
+  // Fallback to file_names parsing
+  const files = parseFileNames(fileNames);
+  if (files.length > 0) {
+    const wavFilename = files[0];
+    const wavPath = `Original Files/${sessionFolder}/${wavFilename}.wav`;
+    return `${API_BASE}/files/download/?path=${encodeURIComponent(wavPath)}`;
+  }
+  
+  // Fall back to track titles
+  if (trackTitles && trackTitles.length > 0) {
+    const wavFilename = trackTitles[0];
+    const wavPath = `Original Files/${sessionFolder}/${wavFilename}.wav`;
+    return `${API_BASE}/files/download/?path=${encodeURIComponent(wavPath)}`;
+  }
+  
+  return null;
+};
+
 const getMp3Url = (path) => `${API_BASE}/files/download/?path=${encodeURIComponent(path)}`;
 
 const getAudioUrl = (path, fileNames, trackTitles) => {
@@ -537,7 +593,9 @@ const App = () => {
     if (!audioService || !song) return;
     
     const mp3Url = getMp3Url(song.path);
-    const wavUrl = getWavUrl(song.path, song.fileNames, song.trackTitles);
+    
+    // Discover WAV dynamically from server (async)
+    const wavUrl = await getWavUrlAsync(song.path, song.fileNames, song.trackTitles);
     
     // Try WAV first if available
     const tryPlay = async (url, isWav) => {
@@ -560,7 +618,7 @@ const App = () => {
         await tryPlay(wavUrl, true);
         return; // WAV worked
       } catch (err) {
-        console.log('[Player] WAV failed (CORB?), falling back to MP3');
+        console.log('[Player] WAV failed, falling back to MP3');
         // Fall through to MP3
       }
     }
@@ -667,12 +725,24 @@ const App = () => {
 
   const formatTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-  // Fetch era songs
+  // Max pages per era (based on song counts / 100 per page)
+  const ERA_MAX_PAGES = {
+    'studio': 4,      // ~400 songs
+    'released': 4,    // ~320 songs
+    'unreleased': 15, // ~1459 songs
+    'unsurfaced': 3,  // ~273 songs
+  };
+
+  // Fetch era songs with random page for variety
   const fetchEraSongs = async (era) => {
     setLoading(true);
     setActiveEra(era);
     try {
-      let url = `${API_BASE}/songs/?page=1&page_size=50`;
+      // Pick random page for this era
+      const maxPages = ERA_MAX_PAGES[era] || 1;
+      const randomPage = Math.floor(Math.random() * maxPages) + 1;
+      
+      let url = `${API_BASE}/songs/?page=${randomPage}&page_size=100`;
       if (era === 'studio') url += '&studio=true';
       else if (era === 'released') url += '&released=true';
       else if (era === 'unreleased') url += '&unreleased=true';
