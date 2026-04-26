@@ -472,10 +472,41 @@ const App = () => {
     
     rafId = requestAnimationFrame(updateProgress);
     
+    // Setup Media Session API for media key support (keyboard play/pause/next/prev)
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (currentSong) play(currentSong);
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        pause();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        handlePrev();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        handleNext();
+      });
+    }
+    
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, []);
+  
+  // Update media session metadata when song changes
+  useEffect(() => {
+    if ('mediaSession' in navigator && currentSong) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentSong.name,
+        artist: currentSong.author,
+        album: 'Juice WRLD',
+        artwork: [
+          { src: currentSong.cover, sizes: '512x512', type: 'image/jpeg' }
+        ]
+      });
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    }
+  }, [currentSong, isPlaying]);
 
   const play = async (song) => {
     const audioService = audioServiceRef.current;
