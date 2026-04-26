@@ -415,11 +415,19 @@ const App = () => {
   const [originalQueue, setOriginalQueue] = useState([]);
   const [isRadioMode, setIsRadioMode] = useState(false);
   const isRadioModeRef = useRef(false);
+  const queueRef = useRef(queue);
+  const queueIndexRef = useRef(queueIndex);
   
-  // Keep ref in sync with state to avoid stale closures
+  // Keep refs in sync with state to avoid stale closures
   useEffect(() => {
     isRadioModeRef.current = isRadioMode;
   }, [isRadioMode]);
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+  useEffect(() => {
+    queueIndexRef.current = queueIndex;
+  }, [queueIndex]);
   
   const audioRef = useRef(null);
   const loadedSrcRef = useRef(null);
@@ -429,6 +437,20 @@ const App = () => {
   
   // Use global AudioService for persistent audio (survives UI unmount)
   const audioServiceRef = useRef(typeof AudioService !== 'undefined' ? AudioService : null);
+  
+  // Refs for media session callbacks (to avoid stale closures)
+  const playRef = useRef(null);
+  const pauseRef = useRef(null);
+  const handlePrevRef = useRef(null);
+  const handleNextRef = useRef(null);
+  const currentSongRef = useRef(null);
+  
+  // Keep refs updated
+  useEffect(() => { playRef.current = play; }, [play]);
+  useEffect(() => { pauseRef.current = pause; }, [pause]);
+  useEffect(() => { handlePrevRef.current = handlePrev; }, [handlePrev]);
+  useEffect(() => { handleNextRef.current = handleNext; }, [handleNext]);
+  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
   
   // Initialize audio volume on mount
   // Initialize audio service and sync state with it
@@ -473,18 +495,20 @@ const App = () => {
     rafId = requestAnimationFrame(updateProgress);
     
     // Setup Media Session API for media key support (keyboard play/pause/next/prev)
+    // Use refs to always call latest function versions
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('play', () => {
-        if (currentSong) play(currentSong);
+        const song = currentSongRef.current;
+        if (song) playRef.current(song);
       });
       navigator.mediaSession.setActionHandler('pause', () => {
-        pause();
+        pauseRef.current();
       });
       navigator.mediaSession.setActionHandler('previoustrack', () => {
-        handlePrev();
+        handlePrevRef.current();
       });
       navigator.mediaSession.setActionHandler('nexttrack', () => {
-        handleNext();
+        handleNextRef.current();
       });
     }
     
@@ -568,10 +592,12 @@ const App = () => {
   };
 
   const handlePrev = async () => {
-    if (queue.length === 0) return;
-    const newIndex = queueIndex > 0 ? queueIndex - 1 : queue.length - 1;
+    const currentQueue = queueRef.current;
+    const currentIndex = queueIndexRef.current;
+    if (currentQueue.length === 0) return;
+    const newIndex = currentIndex > 0 ? currentIndex - 1 : currentQueue.length - 1;
     setQueueIndex(newIndex);
-    const song = queue[newIndex];
+    const song = currentQueue[newIndex];
     setCurrentSong(song);
     await play(song);
   };
@@ -581,9 +607,11 @@ const App = () => {
       await playNextRadioSong();
       return;
     }
-    if (!queue || queue.length === 0) return;
-    const newIndex = (queueIndex + 1) % queue.length;
-    const song = queue[newIndex];
+    const currentQueue = queueRef.current;
+    const currentIndex = queueIndexRef.current;
+    if (!currentQueue || currentQueue.length === 0) return;
+    const newIndex = (currentIndex + 1) % currentQueue.length;
+    const song = currentQueue[newIndex];
     setQueueIndex(newIndex);
     setCurrentSong(song);
     await play(song);
