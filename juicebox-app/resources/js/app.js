@@ -1,5 +1,5 @@
 // JuiceBOX - Neutralinojs Edition
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
 const API_BASE = 'https://juicewrldapi.com/juicewrld';
 const ASSETS_BASE = 'https://juicewrldapi.com/assets';
@@ -35,32 +35,6 @@ const parseFileNames = (fileNamesStr) => {
     if (match) files.push(match[1].trim());
   }
   return files;
-};
-
-const getWavUrl = (path, fileNames, trackTitles) => {
-  if (!path.includes('Compilation/') || !path.endsWith('.mp3')) return null;
-  const folderMatch = path.match(/(\d+)\.\s*[^/]+\/[^/]+\.mp3$/);
-  if (!folderMatch) return null;
-  const folderIndex = parseInt(folderMatch[1]) - 1;
-  const sessionFolder = SESSION_FOLDERS[folderIndex];
-  if (!sessionFolder) return null;
-  
-  // Try file_names first
-  const files = parseFileNames(fileNames);
-  if (files.length > 0) {
-    const wavFilename = files[0];
-    const wavPath = `Original Files/${sessionFolder}/${wavFilename}.wav`;
-    return `${API_BASE}/files/download/?path=${encodeURIComponent(wavPath)}`;
-  }
-  
-  // Fall back to track titles
-  if (trackTitles && trackTitles.length > 0) {
-    const wavFilename = trackTitles[0];
-    const wavPath = `Original Files/${sessionFolder}/${wavFilename}.wav`;
-    return `${API_BASE}/files/download/?path=${encodeURIComponent(wavPath)}`;
-  }
-  
-  return null;
 };
 
 // Discover WAV files dynamically from the server for a session folder
@@ -121,11 +95,6 @@ const getWavUrlAsync = async (path, fileNames, trackTitles) => {
 
 const getMp3Url = (path) => `${API_BASE}/files/download/?path=${encodeURIComponent(path)}`;
 
-const getAudioUrl = (path, fileNames, trackTitles) => {
-  const wavUrl = getWavUrl(path, fileNames, trackTitles);
-  return { wavUrl, mp3Url: getMp3Url(path) };
-};
-
 const getCoverUrl = (imageUrl) => {
   if (!imageUrl) return `${ASSETS_BASE}/jute.png`;
   if (imageUrl.startsWith('http')) return imageUrl;
@@ -133,7 +102,6 @@ const getCoverUrl = (imageUrl) => {
 };
 
 const extractBitrate = (bitrateStr) => {
-  console.log('bitrate', bitrateStr);
   if (!bitrateStr) return 'N/A';
   const matches = bitrateStr.match(/(\d+)kbps/g);
   if (matches && matches.length > 0) {
@@ -297,7 +265,7 @@ const RadioPage = ({ loading, setLoading, play, setQueue, setQueueIndex, setCurr
         path: data.path || data.song?.path,
         fileNames: data.file_names || data.song?.file_names,
         trackTitles: data.track_titles || data.song?.track_titles,
-        bitrate: extractBitrate(data.song?.bitrate)
+        bitrate: extractBitrate(data.song?.bitrate || data.bitrate)
       };
       if (song.path) {
         setRadioSong(song);
@@ -344,7 +312,7 @@ const RadioPage = ({ loading, setLoading, play, setQueue, setQueueIndex, setCurr
 
 const Player = ({ currentSong, isPlaying, duration, volume, currentBitrate, 
                   toggle, handlePrev, handleNext, toggleShuffle, isShuffled,
-                  setVolume, formatTime, audioRef, progressRef, timeRef }) => React.createElement('div', { className: 'wora-player-float' },
+                  setVolume, formatTime, onSeek, progressRef, timeRef }) => React.createElement('div', { className: 'wora-player-float' },
   React.createElement('div', { className: 'wora-player' },
     React.createElement('div', { className: 'wora-player-left' },
       currentSong && React.createElement(React.Fragment, null,
@@ -381,10 +349,10 @@ const Player = ({ currentSong, isPlaying, duration, volume, currentBitrate,
         React.createElement('div', { 
           className: 'wora-progress-bar',
           onClick: (e) => {
-            if (!audioRef.current || !duration) return;
+            if (!duration) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const percent = (e.clientX - rect.left) / rect.width;
-            audioRef.current.currentTime = percent * duration;
+            onSeek(percent);
           }
         },
           React.createElement('div', { 
@@ -405,7 +373,7 @@ const Player = ({ currentSong, isPlaying, duration, volume, currentBitrate,
           value: volume,
           onChange: (e) => {
             const v = parseFloat(e.target.value);
-            if (audioRef.current) audioRef.current.volume = v;
+            setVolume(v);
           }
         })
       )
@@ -485,7 +453,6 @@ const App = () => {
     queueIndexRef.current = queueIndex;
   }, [queueIndex]);
   
-  const audioRef = useRef(null);
   const loadedSrcRef = useRef(null);
   const progressRef = useRef(null);
   const timeRef = useRef(null);
@@ -607,7 +574,7 @@ const App = () => {
       
       if (loadedSrcRef.current !== url) {
         loadedSrcRef.current = url;
-        setCurrentBitrate(isWav ? extractBitrate(song.bitrate) : 'N/A');
+        setCurrentBitrate(extractBitrate(song.bitrate));
       }
       
       await audioService.play(url);
@@ -724,6 +691,23 @@ const App = () => {
   };
 
   const formatTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  // Handle seek using AudioService
+  const handleSeek = (percent) => {
+    const audioService = audioServiceRef.current;
+    if (audioService) {
+      audioService.seek(percent);
+    }
+  };
+
+  // Handle volume change using AudioService
+  const handleVolumeChange = (v) => {
+    setVolume(v);
+    const audioService = audioServiceRef.current;
+    if (audioService) {
+      audioService.setVolume(v);
+    }
+  };
 
   // Max pages per era (based on song counts / 100 per page)
   const ERA_MAX_PAGES = {
@@ -1132,9 +1116,9 @@ const App = () => {
       handleNext,
       toggleShuffle,
       isShuffled,
-      setVolume,
+      setVolume: handleVolumeChange,
       formatTime,
-      audioRef,
+      onSeek: handleSeek,
       progressRef,
       timeRef
     })
